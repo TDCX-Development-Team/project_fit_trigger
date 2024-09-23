@@ -1,25 +1,38 @@
-from google.cloud import bigquery
-import json
+from pyspark.sql import SparkSession
 
-def process_file(data, context):
-    """Triggered by a change to a Cloud Storage bucket."""
-    bucket_name = data['bucket']
-    file_name = data['name']
-    
-    # Define your BigQuery dataset and table name based on the file name
-    dataset_id = 'your_dataset_id'
-    table_id = f"tbl_{file_name.replace(' ', '_')}"
+# Initialize Spark session
+spark = SparkSession.builder \
+    .appName("Load Excel to BigQuery") \
+    .config("spark.jars.packages", "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12:0.29.0,com.crealytics:spark-excel_2.12:0.13.5") \
+    .getOrCreate()
 
-    # Load data into BigQuery (assuming it's in CSV format)
-    client = bigquery.Client()
-    uri = f"gs://{bucket_name}/{file_name}"
+# File path in Google Cloud Storage
+file_path = "gs://project_fit/2024-09-18 16_57-Roster ALO.xlsx"
 
-    job_config = bigquery.LoadJobConfig(
-        source_format=bigquery.SourceFormat.CSV,
-        autodetect=True,
-    )
+# Read the Excel file using Spark
+df = spark.read \
+    .format("com.crealytics.spark.excel") \
+    .option("useHeader", "true") \
+    .option("inferSchema", "true") \
+    .load(file_path)
 
-    load_job = client.load_table_from_uri(uri, f"{dataset_id}.{table_id}", job_config=job_config)
-    load_job.result()  # Wait for the job to complete.
+# Print the inferred schema
+df.printSchema()
 
-    print(f"Loaded {file_name} into {dataset_id}.{table_id}.")
+# Show a preview of the data
+df.show()
+
+# BigQuery table details
+project_id = "tdcxai-data-science"  # Replace with your GCP project ID
+dataset_id = "tdcxai-data-science.project_fit   "  # Replace with your dataset ID
+table_id = "tbl_alo_roster"
+
+# Write data to BigQuery
+df.write \
+    .format("bigquery") \
+    .option("table", f"{project_id}.{dataset_id}.{table_id}") \
+    .mode("append") \
+    .save()
+
+# Stop the Spark session
+spark.stop()
