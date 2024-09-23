@@ -1,1 +1,4 @@
 google-cloud-bigquery
+pandas
+openpyxl
+google-cloud-bigquery
