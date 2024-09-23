@@ -1,4 +1,7 @@
 from pyspark.sql import SparkSession
+import pandas as pd
+from google.cloud import bigquery
+
 
 def process_file(event, context):
     # Initialize Spark session
