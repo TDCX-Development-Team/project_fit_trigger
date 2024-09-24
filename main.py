@@ -37,8 +37,8 @@ def process_file(event, context):
         return
 
     # BigQuery table details
-    project_id = "tdcxai-data-science"  # Replace with your GCP project ID
-    dataset_id = "project_fit"  # Replace with your dataset ID
+    project_id = "tdcxai-data-science"  
+    dataset_id = "project_fit"  
     table_id = "tbl_alo_roster"
 
     # Write data to BigQuery
