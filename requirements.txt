@@ -2,3 +2,6 @@ google-cloud-bigquery
 pandas
 openpyxl
 google-cloud-bigquery
+pyspark==3.2.0
+google-cloud-storage==1.42.3
+functions-framework==3.2.0
