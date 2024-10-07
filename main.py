@@ -1,57 +1,73 @@
-from pyspark.sql import SparkSession
-import pandas as pd
-from google.cloud import bigquery
+import os
 import logging
+from google.cloud import storage, bigquery
+from convert_to_csv import convert_to_csv
 
-def process_file(event, context):
-    logging.basicConfig(level=logging.INFO)
+# Initialize GCS and BigQuery clients
+storage_client = storage.Client()
+bigquery_client = bigquery.Client()
+
+# Configuration constants
+PROJECT_ID = 'tdcxai-data-science'  # Define your project ID here
+BUCKET_NAME = 'project_fit'
+DATASET_NAME = 'project_fit'
+TABLE_NAME = 'tbl_alo_roster'
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+
+def process_file(data, context):
+    """Triggered by a change to a Cloud Storage bucket. Convert Excel file to CSV and load to BigQuery."""
     
-    # Initialize Spark session
+    file_name = data['name']
+    logging.info(f'Processing file: {file_name}')
+
     try:
-        spark = SparkSession.builder \
-            .appName("Load Excel to BigQuery") \
-            .config("spark.jars.packages", "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12:0.29.0,com.crealytics:spark-excel_2.12:0.13.5") \
-            .getOrCreate()
-        logging.info("Spark session started successfully.")
+        # Download the Excel file from GCS
+        temp_file_path = f'/tmp/{file_name}'
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(file_name)
+
+        # Download the blob to a temporary file
+        logging.info(f'Downloading file from bucket: {BUCKET_NAME}/{file_name}...')
+        blob.download_to_filename(temp_file_path)
+
+        # Convert Excel to CSV
+        csv_file_path = f'/tmp/{file_name}.csv'
+        logging.info(f'Converting {file_name} to CSV...')
+        convert_to_csv(temp_file_path, csv_file_path)
+
+        # Load the CSV file into BigQuery
+        load_csv_to_bigquery(csv_file_path)
+
+        # Optionally, you can delete the temporary files
+        os.remove(temp_file_path)
+        os.remove(csv_file_path)
+        logging.info(f'Successfully processed and cleaned up files for {file_name}.')
+
     except Exception as e:
-        logging.error(f"Failed to create Spark session: {e}")
-        return
+        logging.error(f'An error occurred while processing {file_name}: {e}')
+        raise  # Rethrow the exception to indicate failure
 
-    # File path in Google Cloud Storage
-    file_path = f"gs://{event['bucket']}/{event['name']}"
-    logging.info(f"Reading file from: {file_path}")
+def load_csv_to_bigquery(csv_file_path):
+    """Load the CSV file to BigQuery."""
+    table_id = f'{PROJECT_ID}.{DATASET_NAME}.{TABLE_NAME}'
 
-    # Read the Excel file using Spark
     try:
-        df = spark.read \
-            .format("com.crealytics.spark.excel") \
-            .option("useHeader", "true") \
-            .option("inferSchema", "true") \
-            .load(file_path)
+        # Load the CSV file into BigQuery
+        job_config = bigquery.LoadJobConfig(
+            autodetect=True,  # Automatically infer the schema
+            source_format=bigquery.SourceFormat.CSV,
+        )
 
-        logging.info("File read successfully.")
-        df.printSchema()
-        df.show()
+        with open(csv_file_path, "rb") as source_file:
+            job = bigquery_client.load_table_from_file(
+                source_file, table_id, job_config=job_config
+            )  # Make an API request
+
+        job.result()  # Wait for the job to complete
+        logging.info(f'Loaded {job.output_rows} rows into {table_id}.')
+
     except Exception as e:
-        logging.error(f"Failed to read the Excel file: {e}")
-        return
-
-    # BigQuery table details
-    project_id = "tdcxai-data-science"  
-    dataset_id = "project_fit"  
-    table_id = "tbl_alo_roster"
-
-    # Write data to BigQuery
-    try:
-        df.write \
-            .format("bigquery") \
-            .option("table", f"{project_id}.{dataset_id}.{table_id}") \
-            .mode("append") \
-            .save()
-        logging.info("Data written to BigQuery successfully.")
-    except Exception as e:
-        logging.error(f"Failed to write data to BigQuery: {e}")
-        return
-
-    # Stop the Spark session
-    spark.stop()
+        logging.error(f'An error occurred while loading CSV to BigQuery: {e}')
+        raise  # Rethrow the exception to indicate failure
