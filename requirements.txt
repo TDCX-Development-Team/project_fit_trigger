@@ -1,6 +1,13 @@
-google-cloud-bigquery
+google-cloud-bigquery>=2.0.0
+google-cloud-storage>=1.42.3
 pandas
 openpyxl
-google-cloud-storage==1.42.3
+pyspark==3.2.0
 functions-framework==3.2.0
+fsspec
+gcsfs
 pyarrow
+db-dtypes
+pyarrow
+
+

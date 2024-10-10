@@ -1,73 +1,52 @@
-import os
+from pyspark.sql import SparkSession
 import logging
-from google.cloud import storage, bigquery
-from convert_to_csv import convert_to_csv
+from google.cloud import storage
+from google.cloud import bigquery
+from google.cloud.exceptions import NotFound
+from excel_to_pandas import load_excel_to_dataframe, load_dataframe_to_bigquery, create_table, TABLE_SCHEMA  # Ensure you import all necessary functions and variables
+from bigquery_upsert import table_exists, read_existing_data, upsert_to_bigquery
+from config import PROJECT_ID, DATASET_NAME, TABLE_NAME
 
-# Initialize GCS and BigQuery clients
-storage_client = storage.Client()
-bigquery_client = bigquery.Client()
 
-# Configuration constants
-PROJECT_ID = 'tdcxai-data-science'  # Define your project ID here
-BUCKET_NAME = 'project_fit'
-DATASET_NAME = 'project_fit'
-TABLE_NAME = 'tbl_alo_roster'
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-
-def process_file(data, context):
-    """Triggered by a change to a Cloud Storage bucket. Convert Excel file to CSV and load to BigQuery."""
+def process_file(event, context):
+    logging.basicConfig(level=logging.INFO)
     
-    file_name = data['name']
-    logging.info(f'Processing file: {file_name}')
+    # Get the bucket and file name
+    bucket_name = event['bucket']
+    file_name = event['name']
+    logging.info(f"Processing file {file_name} from bucket {bucket_name}")
 
+    # File path in Google Cloud Storage
+    file_path = f"gs://{bucket_name}/{file_name}"
+
+    # Read the file as a Pandas DataFrame
     try:
-        # Download the Excel file from GCS
-        temp_file_path = f'/tmp/{file_name}'
-        bucket = storage_client.bucket(BUCKET_NAME)
-        blob = bucket.blob(file_name)
-
-        # Download the blob to a temporary file
-        logging.info(f'Downloading file from bucket: {BUCKET_NAME}/{file_name}...')
-        blob.download_to_filename(temp_file_path)
-
-        # Convert Excel to CSV
-        csv_file_path = f'/tmp/{file_name}.csv'
-        logging.info(f'Converting {file_name} to CSV...')
-        convert_to_csv(temp_file_path, csv_file_path)
-
-        # Load the CSV file into BigQuery
-        load_csv_to_bigquery(csv_file_path)
-
-        # Optionally, you can delete the temporary files
-        os.remove(temp_file_path)
-        os.remove(csv_file_path)
-        logging.info(f'Successfully processed and cleaned up files for {file_name}.')
-
+        df_new = load_excel_to_dataframe(file_path)
+        logging.info(f"Loaded Excel data into DataFrame with {df_new.shape[0]} rows and columns: {df_new.columns.tolist()}")
     except Exception as e:
-        logging.error(f'An error occurred while processing {file_name}: {e}')
-        raise  # Rethrow the exception to indicate failure
+        logging.error(f"Error loading Excel file to DataFrame from {file_path}: {e}")
+        return
 
-def load_csv_to_bigquery(csv_file_path):
-    """Load the CSV file to BigQuery."""
-    table_id = f'{PROJECT_ID}.{DATASET_NAME}.{TABLE_NAME}'
+    # Initialize BigQuery client
+    client = bigquery.Client()
 
+    # Check if BigQuery table exists
+    if not table_exists(client, DATASET_NAME, TABLE_NAME):
+        logging.info("Table doesn't exist. Creating the table...")
+        create_table(client, DATASET_NAME, TABLE_NAME, TABLE_SCHEMA)  # Call create_table from excel_to_pandas
+
+    # Read existing data from BigQuery
     try:
-        # Load the CSV file into BigQuery
-        job_config = bigquery.LoadJobConfig(
-            autodetect=True,  # Automatically infer the schema
-            source_format=bigquery.SourceFormat.CSV,
-        )
-
-        with open(csv_file_path, "rb") as source_file:
-            job = bigquery_client.load_table_from_file(
-                source_file, table_id, job_config=job_config
-            )  # Make an API request
-
-        job.result()  # Wait for the job to complete
-        logging.info(f'Loaded {job.output_rows} rows into {table_id}.')
-
+        # Include necessary arguments
+        df_existing = read_existing_data(client, DATASET_NAME, TABLE_NAME)
+        logging.info(f"Loaded existing data from BigQuery with {df_existing.shape[0]} rows.")
     except Exception as e:
-        logging.error(f'An error occurred while loading CSV to BigQuery: {e}')
-        raise  # Rethrow the exception to indicate failure
+        logging.error(f"Error reading existing data from BigQuery: {e}")
+        return
+
+    # Perform upsert operation
+    try:
+        upsert_to_bigquery(df_existing, df_new)
+        logging.info("Upsert to BigQuery completed successfully.")
+    except Exception as e:
+        logging.error(f"Failed to upsert data into BigQuery: {e}")
