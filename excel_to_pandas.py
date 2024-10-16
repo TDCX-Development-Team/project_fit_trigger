@@ -38,7 +38,7 @@ def load_excel_to_dataframe(file_path):
         if 'end_date' not in df.columns:
             df['end_date'] = current_date
 
-        logging.info(f"Loaded DataFrame with {len(df)} rows and columns: {df.columns.tolist()}")
+        #logging.info(f"Loaded DataFrame with {len(df)} rows and columns: {df.columns.tolist()}")
         logging.info("DataFrame dtypes:")
         logging.info(df.dtypes)
 
