@@ -20,10 +20,10 @@ def process_file(event, context):
     file_path = f"gs://{bucket_name}/{file_name}"
 
     # Load Excel data into a Pandas DataFrame
-    df_new = None 
+    df_new = None
     try:
         df_new = load_excel_to_dataframe(file_path)
-        logging.info(f"Loaded Excel data into DataFrame with {df_new.shape[0]} rows and columns: {df_new.columns.tolist()}")
+        logging.info(f"Loaded Excel data into DataFrame with {df_new.shape[0]} rows.")
     except Exception as e:
         logging.error(f"Error loading Excel file to DataFrame from {file_path}: {e}")
         return
@@ -57,8 +57,11 @@ def process_file(event, context):
         logging.error(f"Error reading existing data from BigQuery: {e}")
         return
 
+    # Log DataFrame types to debug any issues
     logging.info(f"New DataFrame columns: {df_new.columns.tolist()}")
     logging.info(f"Existing DataFrame columns: {df_existing.columns.tolist()}")
+    logging.info(f"New DataFrame dtypes: {df_new.dtypes}")
+    logging.info(f"Existing DataFrame dtypes: {df_existing.dtypes}")
 
     # Align the columns in both DataFrames for upsert
     missing_in_new = set(df_existing.columns) - set(df_new.columns)
@@ -82,13 +85,20 @@ def process_file(event, context):
                 logging.error("Failed to load new data into BigQuery.")
         else:
             logging.info("Existing data found, performing upsert.")
-            # Trigger upsert process
-            upsert_successful = upsert_to_bigquery(df_existing, df_new)  # Perform upsert directly
-            if not upsert_successful:
-                logging.error("Failed to upsert data into BigQuery.")
+
+            # Ensure that df_existing and df_new are both DataFrames before upsert
+            if isinstance(df_existing, pd.DataFrame) and isinstance(df_new, pd.DataFrame):
+                upsert_successful = upsert_to_bigquery(df_existing, df_new)  # Perform upsert directly
+                if isinstance(upsert_successful, bool):
+                    logging.error(f"Upsert returned a bool: {upsert_successful}, expected DataFrame or operation result.")
+                if not upsert_successful:
+                    logging.error("Failed to upsert data into BigQuery.")
+            else:
+                logging.error("One of the DataFrames is not valid for upsert.")
     except Exception as e:
         logging.error(f"Failed to upsert data into BigQuery: {e}")
         return
 
     logging.info("Data processing completed successfully.")
+
 
