@@ -98,7 +98,11 @@ def upsert_to_bigquery(existing_df, new_df):
     # Case 1: Insert new data if no existing data found
     if existing_df.empty:
         logging.info("No existing data found in BigQuery. Inserting new data.")
-        load_dataframe_to_bigquery(new_df, PROJECT_ID, DATASET_NAME, TABLE_NAME)
+        load_successful = load_dataframe_to_bigquery(new_df, PROJECT_ID, DATASET_NAME, TABLE_NAME)
+        if load_successful:
+            logging.info("New data inserted successfully.")
+        else:
+            logging.error("Failed to insert new data into BigQuery.")
         return
 
     # Case 2: Merge the new data with existing records
@@ -186,7 +190,11 @@ def upsert_to_bigquery(existing_df, new_df):
     # Load the final records into BigQuery if there are records to insert
     if not records_to_insert.empty:
         logging.info("Inserting records into BigQuery.")
-        load_dataframe_to_bigquery(records_to_insert, PROJECT_ID, DATASET_NAME, TABLE_NAME)
+        load_successful = load_dataframe_to_bigquery(records_to_insert, PROJECT_ID, DATASET_NAME, TABLE_NAME)
+        if load_successful:
+            logging.info("Records inserted successfully.")
+        else:
+            logging.error("Failed to insert records into BigQuery.")
     else:
         logging.info("No records to insert into BigQuery.")
 
