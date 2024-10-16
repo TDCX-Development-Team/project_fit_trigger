@@ -112,7 +112,7 @@ def load_dataframe_to_bigquery(df, project_id, dataset_name, table_name):
         create_table(client, dataset_name, table_name, TABLE_SCHEMA)
 
     logging.info(f"Loading DataFrame to BigQuery table: {table_id}")
-    
+
     # Load DataFrame to BigQuery
     try:
         job_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
