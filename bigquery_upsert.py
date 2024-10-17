@@ -59,144 +59,130 @@ def upsert_to_bigquery(existing_df, new_df):
     # Set up logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    # Log initial DataFrame columns and types
-    logging.info("Type of existing_df: %s", type(existing_df))
-    logging.info("Loaded existing DataFrame: %s", existing_df.head() if isinstance(existing_df, pd.DataFrame) else 'Not a DataFrame')
-
-    logging.info("Type of new_df: %s", type(new_df))
-    logging.info("Loaded new DataFrame: %s", new_df.head() if isinstance(new_df, pd.DataFrame) else 'Not a DataFrame')
-
-    # Strip whitespace from column names
-    new_df.columns = new_df.columns.str.strip()
-    existing_df.columns = existing_df.columns.str.strip()
-
-    # Check for NaN values in 'emp_id' and log warnings
-    new_emp_id_nan_count = new_df['emp_id'].isna().sum()
-    existing_emp_id_nan_count = existing_df['emp_id'].isna().sum()
-    
-    if new_emp_id_nan_count > 0:
-        logging.warning("New DataFrame contains %d NaN values in 'emp_id'.", new_emp_id_nan_count)
-        new_df.dropna(subset=['emp_id'], inplace=True)
-
-    if existing_emp_id_nan_count > 0:
-        logging.warning("Existing DataFrame contains %d NaN values in 'emp_id'.", existing_emp_id_nan_count)
-        existing_df.dropna(subset=['emp_id'], inplace=True)
-
-    # Date columns to process, excluding 'start_date', 'end_date'
-    date_columns = ['date_of_hire', 'termination_date', 'go_live', 'contract_end_date']
-
-    def process_date_columns(df, date_columns):
-        for col in date_columns:
-            df[col] = df[col].replace(['', '-'], pd.NaT)  # Replace invalid dates with NaT
-            df[col] = pd.to_datetime(df[col], errors='coerce').dt.date  # Convert to datetime (date only)
-        return df
-
-    # Process date columns
-    new_df = process_date_columns(new_df, date_columns)
-    existing_df = process_date_columns(existing_df, date_columns)
-
-    # Case 1: Insert new data if no existing data found
-    if existing_df.empty:
-        logging.info("No existing data found in BigQuery. Inserting new data.")
-        load_successful = load_dataframe_to_bigquery(new_df, PROJECT_ID, DATASET_NAME, TABLE_NAME)
-        if load_successful:
-            logging.info("New data inserted successfully.")
-        else:
-            logging.error("Failed to insert new data into BigQuery.")
-        return
-
-    # Case 2: Merge the new data with existing records
-    merged_df = pd.merge(existing_df, new_df, on='emp_id', how='outer', suffixes=('_old', '_new'), indicator=True)
-    logging.info("Merged DataFrame shape: %s", merged_df.shape)
-    logging.debug("Merged DataFrame columns: %s", merged_df.columns.tolist())
-
-    # Check if the '_merge' column exists
-    if '_merge' not in merged_df.columns:
-        logging.error("'_merge' column not found in merged_df.")
-        return
-
     try:
-        merge_condition = merged_df['_merge'] == 'both'
-        logging.debug("Merge condition: %s", merge_condition.head())
+        # Strip whitespace from column names
+        new_df.columns = new_df.columns.str.strip()
+        existing_df.columns = existing_df.columns.str.strip()
 
-        old_filtered = merged_df.filter(like='_old').fillna('')
-        new_filtered = merged_df.filter(like='_new').fillna('')
+        logging.info("Stripped columns in new_df: %s", new_df.columns.tolist())
+        logging.info("Stripped columns in existing_df: %s", existing_df.columns.tolist())
 
-        logging.debug("Old filtered DataFrame shape: %s", old_filtered.shape)
-        logging.debug("New filtered DataFrame shape: %s", new_filtered.shape)
+        # Define columns to check for presence in DataFrames
+        columns_to_check = [
+            'emp_id', 'site', 'name', 'role', 'status', 'leader', 'manager',
+            'work_email', 'wave', 'alo_credential_user_name',  
+            'date_of_hire', 'termination_date', 'go_live',  
+            'tenure', 'contract_type', 'contract_end_date',  
+            'flash_card_user', 'national_id', 'personal_email',  
+            'birthday', 'address', 'barrio_localidad', 'phone_number',  
+            'natterbox', 'start_date', 'end_date'
+        ]
 
-        comparison_result = old_filtered.eq(new_filtered)
-        logging.debug("Comparison result: %s", comparison_result.head())
+        # Check for missing columns in new_df and existing_df
+        for df_name, df in zip(['new_df', 'existing_df'], [new_df, existing_df]):
+            missing_columns = [col for col in columns_to_check if col not in df.columns]
+            if missing_columns:
+                error_message = f"Columns missing from {df_name}: {', '.join(missing_columns)}"
+                logging.error(error_message)
+                return {"success": False, "error": error_message}
 
-        unchanged_condition = merge_condition & comparison_result.all(axis=1)
-        logging.debug("Unchanged condition results: %s", unchanged_condition.head())
+        # Drop rows with missing emp_id in both DataFrames before merging
+        new_df_before_drop = new_df.shape[0]
+        existing_df_before_drop = existing_df.shape[0]
+        new_df = new_df.dropna(subset=['emp_id'])
+        existing_df = existing_df.dropna(subset=['emp_id'])
+        logging.info(f"Dropped {new_df_before_drop - new_df.shape[0]} rows from new_df and {existing_df_before_drop - existing_df.shape[0]} rows from existing_df due to missing emp_id.")
 
-    except Exception as e:
-        logging.error("Error during comparison: %s", str(e))
-        raise
+        # Convert 'start_date' and 'end_date' in both DataFrames to proper date format
+        for df in [new_df, existing_df]:
+            try:
+                df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce').dt.date
+                df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce').dt.date
 
-    # Check if there are unchanged records
-    unchanged_records = merged_df[unchanged_condition]
-    if not unchanged_records.empty:
-        logging.info("No changes detected in records with emp_id: %s. Skipping upsert.", unchanged_records['emp_id'].unique())
-        return
+                if df['start_date'].isnull().any() or df['end_date'].isnull().any():
+                    raise ValueError(f"Date conversion failed in one of the rows in DataFrame:\n{df.head()}")
+            except Exception as date_conversion_error:
+                error_message = f"Error converting date columns: {str(date_conversion_error)}"
+                logging.error(error_message)
+                return {"success": False, "error": error_message}
 
-    # Handle records present in both datasets (changed records)
-    changed_records = merged_df[merged_df['_merge'] == 'both'].copy()
-    new_records = merged_df[merged_df['_merge'] == 'right_only'].copy()
+        # Ensure 'tenure' and 'birthday' are treated as strings
+        new_df['tenure'] = new_df['tenure'].astype(str)
+        existing_df['tenure'] = existing_df['tenure'].astype(str)
+        new_df['birthday'] = new_df['birthday'].astype(str)
+        existing_df['birthday'] = existing_df['birthday'].astype(str)
 
-    # Update end_date for changed records
-    if not changed_records.empty:
-        for emp_id in changed_records['emp_id'].unique():
-            emp_group = changed_records[changed_records['emp_id'] == emp_id]
+        # Case 1: If the existing_df is empty, insert new data
+        if existing_df.empty:
+            try:
+                logging.info("No existing data found in BigQuery. Inserting new data.")
+                load_dataframe_to_bigquery(new_df, PROJECT_ID, DATASET_NAME, TABLE_NAME)
+                return {"success": True, "message": "Inserted new data."}
+            except Exception as insert_error:
+                error_message = f"Error inserting new data: {str(insert_error)}"
+                logging.error(error_message)
+                return {"success": False, "error": error_message}
 
-            # Get the most recent record based on end_date_old
-            most_recent_index = emp_group['end_date_old'].idxmax()
-            most_recent = changed_records.loc[most_recent_index]
+        # Case 2: Process the new data with existing records
+        for emp_id in new_df['emp_id'].unique():
+            try:
+                existing_records = existing_df[existing_df['emp_id'] == emp_id]
+                new_records = new_df[new_df['emp_id'] == emp_id]
 
-            # Check if new start_date is greater than the most recent end_date
-            if pd.isnull(most_recent['end_date_old']) or most_recent['end_date_old'] < most_recent['start_date_new']:
-                # Update end_date_old with start_date_new
-                changed_records.at[most_recent_index, 'end_date_old'] = most_recent['start_date_new']
+                if not existing_records.empty and not new_records.empty:
+                    # Handle identical records by comparing values (excluding start_date and end_date)
+                    try:
+                        identical = existing_records.drop(columns=['emp_id', 'start_date', 'end_date']).equals(
+                            new_records.drop(columns=['emp_id', 'start_date', 'end_date'])
+                        )
 
-            # Update changed fields, excluding emp_id, start_date, and end_date
-            for col in existing_df.columns:
-                if col not in ['emp_id', 'start_date', 'end_date']:
-                    changed_records.at[most_recent_index, col] = most_recent.get(col + '_new', None)
+                        if identical:
+                            logging.info(f"Identical records found for emp_id {emp_id}. Ignoring these records.")
+                            continue  # Skip processing for identical records
+                    except Exception as e:
+                        logging.error(f"Error comparing records for emp_id {emp_id}: {e}")
+                        return {"success": False, "error": str(e)}
 
-    # Prepare new records
-    if not new_records.empty:
-        current_date = datetime.now().date()
+                    # Update end_date for the most recent existing record
+                    last_index = existing_records.index[-1]
+                    existing_df.at[last_index, 'end_date'] = datetime.now().date()
+                    logging.info(f"Updated end_date for emp_id {emp_id} to current date.")
 
-    # Combine changed and new records
-    records_to_insert = pd.concat([changed_records, new_records], ignore_index=True)
+                # Append new records
+                for new_record in new_records.itertuples(index=False):
+                    new_record_df = pd.DataFrame([new_record._asdict()])
+                    new_record_df['start_date'] = datetime.now().date()
+                    new_record_df['end_date'] = pd.NaT  # Set end_date as NaT for new records
+                    existing_df = pd.concat([existing_df, new_record_df], ignore_index=True)
+                    logging.info(f"Appended new record for emp_id {emp_id}. Current size of existing_df: {existing_df.shape[0]}.")
 
-    # Clean up unnecessary columns
-    records_to_insert = records_to_insert.loc[:, ~records_to_insert.columns.str.endswith('_old')]
-    records_to_insert = records_to_insert.loc[:, ~records_to_insert.columns.str.endswith('_new')]
+            except Exception as processing_error:
+                error_message = f"Error processing emp_id {emp_id}: {str(processing_error)}"
+                logging.error(error_message)
+                return {"success": False, "error": error_message}
 
-    if '_merge' in records_to_insert.columns:
-        records_to_insert.drop(columns=['_merge'], inplace=True)
+        # Final DataFrame preparation and insertion
+        try:
+            existing_df.columns = existing_df.columns.str.replace('_old', '', regex=False).str.replace('_new', '', regex=False)
+            records_to_insert = existing_df[columns_to_check]
+            records_to_insert.reset_index(drop=True, inplace=True)
 
-    # Final adjustments to date columns
-    for col in date_columns:
-        if col in records_to_insert.columns:
-            records_to_insert[col] = pd.to_datetime(records_to_insert[col], errors='coerce').dt.date
+            if records_to_insert.empty:
+                return {"success": True, "message": "No records to insert into BigQuery."}
 
-    # Log the final DataFrame
-    logging.info("Final columns to be inserted: %s", records_to_insert.columns.tolist())
-    logging.info("Records to insert: %s", records_to_insert.head())
+            logging.info(f"Inserting {len(records_to_insert)} records into BigQuery.")
+            load_dataframe_to_bigquery(records_to_insert, PROJECT_ID, DATASET_NAME, TABLE_NAME)
+            return {"success": True, "message": f"Inserted {len(records_to_insert)} records into BigQuery."}
 
-    # Load the final records into BigQuery if there are records to insert
-    if not records_to_insert.empty:
-        logging.info("Inserting records into BigQuery.")
-        load_successful = load_dataframe_to_bigquery(records_to_insert, PROJECT_ID, DATASET_NAME, TABLE_NAME)
-        if load_successful:
-            logging.info("Records inserted successfully.")
-        else:
-            logging.error("Failed to insert records into BigQuery.")
-    else:
-        logging.info("No records to insert into BigQuery.")
+        except Exception as final_insertion_error:
+            error_message = f"Error during final insertion: {str(final_insertion_error)}"
+            logging.error(error_message)
+            return {"success": False, "error": error_message}
+
+    except Exception as general_error:
+        error_message = f"General error in upsert_to_bigquery: {str(general_error)}"
+        logging.error(error_message)
+        return {"success": False, "error": error_message}
 
 
 
