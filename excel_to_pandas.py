@@ -17,19 +17,24 @@ def load_excel_to_dataframe(file_path):
             .str.replace(r'_{2,}', '_', regex=True).str.strip('_').str.lower()  # Convert column names to lowercase
 
         # Transform specific columns to string
-        columns_to_convert = ['emp_id', 'wave', 'tenure', 'national_id', 'address', 'barrio_localidad', 'natterbox', 'phone_number', 'birthday']
+        columns_to_convert = ['emp_id', 'wave', 'tenure', 'national_id', 'address', 
+                              'barrio_localidad', 'natterbox', 'phone_number', 'birthday']
         df[columns_to_convert] = df[columns_to_convert].astype(str)
 
+        # Log data types after conversion to ensure they are correct
+        logging.info(f"Data types after string conversion: {df.dtypes}")
+
         # Handle date columns
-        date_columns = ['contract_end_date', 'date_of_hire', 'go_live', 'termination_date', 'start_date', 'end_date']
+        date_columns = ['contract_end_date', 'date_of_hire', 'go_live', 
+                        'termination_date', 'start_date', 'end_date']
         
         for col in date_columns:
             if col in df.columns:
                 df[col] = df[col].replace('-', pd.NaT)  # Replace '-' with NaT
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date  # Convert to date (YYYY-MM-DD format)
 
-                # Fill NaT values with NaT (no need to fill with default date)
-                df[col].fillna(pd.NaT, inplace=True)
+                # Log the conversion results
+                logging.info(f"Processed date column: {col}, resulting data types: {df[col].dtypes}")
 
         # Ensure 'start_date' and 'end_date' are present and filled with current date if missing
         current_date = pd.to_datetime(datetime.now().date()).date()
@@ -38,8 +43,9 @@ def load_excel_to_dataframe(file_path):
         if 'end_date' not in df.columns:
             df['end_date'] = current_date
 
-        #logging.info(f"Loaded DataFrame with {len(df)} rows and columns: {df.columns.tolist()}")
-        logging.info("DataFrame dtypes:")
+        # Final logging of DataFrame shape and types
+        logging.info(f"Loaded DataFrame with {len(df)} rows and columns: {df.columns.tolist()}")
+        logging.info("Final DataFrame dtypes:")
         logging.info(df.dtypes)
 
         return df
@@ -47,6 +53,7 @@ def load_excel_to_dataframe(file_path):
     except Exception as e:
         logging.error(f"Error loading Excel file '{file_path}' into DataFrame: {e}")
         return pd.DataFrame()  # Return empty DataFrame on error
+
 
 
 TABLE_SCHEMA = [
