@@ -5,7 +5,6 @@ from config import PROJECT_ID, DATASET_NAME, TABLE_NAME
 import logging
 import fsspec
 
-
 def load_excel_to_dataframe(file_path):
     """Load an Excel file into a Pandas DataFrame."""
     try:
@@ -17,16 +16,22 @@ def load_excel_to_dataframe(file_path):
             .str.replace(r'_{2,}', '_', regex=True).str.strip('_').str.lower()  # Convert column names to lowercase
 
         # Transform specific columns to string
-        columns_to_convert = ['emp_id', 'wave', 'tenure', 'national_id', 'address', 
-                              'barrio_localidad', 'natterbox', 'phone_number', 'birthday']
-        df[columns_to_convert] = df[columns_to_convert].astype(str)
+        columns_to_convert = ['emp_id', 'wave', 'national_id', 'address', 
+                              'barrio_localidad', 'natterbox', 'phone_number']
 
+        # Convert the specified columns to string
+        df[columns_to_convert] = df[columns_to_convert].fillna('').astype('string')
+        df['tenure'] = pd.to_numeric(df['tenure'], errors='coerce')  # Convert to numeric, set invalid entries to NaN
+        df['tenure'].fillna(0, inplace=True)  # Replace NaN with 0 (or any default value)
+        df['tenure'] = df['tenure'].astype('int64')  # Convert to int64
+
+        #df['birthday'] = (pd.to_datetime(df['birthday'].replace('-', pd.NaT), format='%d-%m-%Y', errors='coerce').dt.strftime('%d/%m/%Y'))
         # Log data types after conversion to ensure they are correct
         logging.info(f"Data types after string conversion: {df.dtypes}")
 
-        # Handle date columns
+        # Handle date columns separately
         date_columns = ['contract_end_date', 'date_of_hire', 'go_live', 
-                        'termination_date', 'start_date', 'end_date']
+                        'termination_date', 'start_date', 'end_date', 'birthday']
         
         for col in date_columns:
             if col in df.columns:
@@ -35,6 +40,7 @@ def load_excel_to_dataframe(file_path):
 
                 # Log the conversion results
                 logging.info(f"Processed date column: {col}, resulting data types: {df[col].dtypes}")
+        
 
         # Ensure 'start_date' and 'end_date' are present and filled with current date if missing
         current_date = pd.to_datetime(datetime.now().date()).date()
@@ -42,6 +48,7 @@ def load_excel_to_dataframe(file_path):
             df['start_date'] = current_date
         if 'end_date' not in df.columns:
             df['end_date'] = current_date
+
 
         # Final logging of DataFrame shape and types
         logging.info(f"Loaded DataFrame with {len(df)} rows and columns: {df.columns.tolist()}")
@@ -53,7 +60,6 @@ def load_excel_to_dataframe(file_path):
     except Exception as e:
         logging.error(f"Error loading Excel file '{file_path}' into DataFrame: {e}")
         return pd.DataFrame()  # Return empty DataFrame on error
-
 
 
 TABLE_SCHEMA = [
@@ -70,13 +76,13 @@ TABLE_SCHEMA = [
     bigquery.SchemaField("date_of_hire", "DATE"),
     bigquery.SchemaField("termination_date", "DATE"),
     bigquery.SchemaField("go_live", "DATE"),
-    bigquery.SchemaField("tenure", "STRING"),
+    bigquery.SchemaField("tenure", "INT64"),
     bigquery.SchemaField("contract_type", "STRING"),
     bigquery.SchemaField("contract_end_date", "DATE"),
     bigquery.SchemaField("flash_card_user", "STRING"),
     bigquery.SchemaField("national_id", "STRING"),
     bigquery.SchemaField("personal_email", "STRING"),
-    bigquery.SchemaField("birthday", "STRING"),
+    bigquery.SchemaField("birthday", "DATE"),
     bigquery.SchemaField("address", "STRING"),
     bigquery.SchemaField("barrio_localidad", "STRING"),
     bigquery.SchemaField("phone_number", "STRING"),
