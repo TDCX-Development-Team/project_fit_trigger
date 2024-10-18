@@ -128,7 +128,7 @@ def load_dataframe_to_bigquery(df, project_id, dataset_name, table_name):
 
     # Load DataFrame to BigQuery
     try:
-        job_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
+        job_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
         job = client.load_table_from_dataframe(df, table_id, job_config=job_config)
         job.result()  # Wait for job to complete
         logging.info(f"Loaded {len(df)} rows into {table_id}.")
