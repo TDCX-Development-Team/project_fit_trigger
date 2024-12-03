@@ -150,7 +150,11 @@ def process_file(event, context):
         return
 
     logging.info("Data processing completed successfully.")
+<<<<<<< HEAD
     # TRIGGER SCHEDULED QUERY
+=======
+     # TRIGGER SCHEDULED QUERY
+>>>>>>> faee8e9593257ea17b0f6b0a4de31c47017124eb
     transferid = '671d5600-0000-2ecb-91d3-089e0831d8c8'
     client = bigquery_datatransfer_v1.DataTransferServiceClient()
     projectid = 'tdcxai-data-science'
