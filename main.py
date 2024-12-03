@@ -7,6 +7,8 @@ from excel_to_pandas import load_excel_to_dataframe, load_dataframe_to_bigquery,
 from bigquery_upsert import table_exists, read_existing_data, upsert_to_bigquery
 from config import PROJECT_ID, DATASET_NAME, TABLE_NAME
 import pandas as pd
+import time
+from google.cloud import bigquery_datatransfer_v1
 
 def process_file(event, context):
     logging.basicConfig(level=logging.INFO)
@@ -148,4 +150,12 @@ def process_file(event, context):
         return
 
     logging.info("Data processing completed successfully.")
+    # TRIGGER SCHEDULED QUERY
+    transferid = '671d5600-0000-2ecb-91d3-089e0831d8c8'
+    client = bigquery_datatransfer_v1.DataTransferServiceClient()
+    projectid = 'tdcxai-data-science'
+    parent = client.project_transfer_config_path(projectid, transferid)
+    start_time = bigquery_datatransfer_v1.types.Timestamp(seconds=int(time.time() + 10))
+    response = client.start_manual_transfer_runs(parent, requested_run_time=start_time)
+    print('Scheduled Query Triggered')
 

@@ -9,5 +9,8 @@ gcsfs
 pyarrow
 db-dtypes
 pyarrow
+google-cloud-bigquery-datatransfer==1
+PyYAML==6.0 
+
 
 
