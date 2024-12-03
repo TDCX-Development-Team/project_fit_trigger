@@ -4,6 +4,14 @@ from datetime import datetime
 from config import PROJECT_ID, DATASET_NAME, TABLE_NAME
 import logging
 import fsspec
+from schema_utils import load_schema, sync_columns
+import os
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+
+# Load schema globally
+REFERENCE_SCHEMA = load_schema(os.path.join(os.path.dirname(__file__), "reference_schema.yaml"))
+
 
 def load_excel_to_dataframe(file_path):
     """Load an Excel file into a Pandas DataFrame."""
@@ -48,6 +56,8 @@ def load_excel_to_dataframe(file_path):
             df['start_date'] = current_date
         if 'end_date' not in df.columns:
             df['end_date'] = current_date
+
+        df = sync_columns(df, REFERENCE_SCHEMA)
 
 
         # Final logging of DataFrame shape and types
@@ -128,7 +138,7 @@ def load_dataframe_to_bigquery(df, project_id, dataset_name, table_name):
 
     # Load DataFrame to BigQuery
     try:
-        job_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
+        job_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
         job = client.load_table_from_dataframe(df, table_id, job_config=job_config)
         job.result()  # Wait for job to complete
         logging.info(f"Loaded {len(df)} rows into {table_id}.")
