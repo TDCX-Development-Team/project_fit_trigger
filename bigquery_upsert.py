@@ -18,31 +18,75 @@ def table_exists(client, dataset_name, table_name):
     except NotFound:
         return False
 # Read existing data from BigQuery
+# def read_existing_data(client, dataset_name, table_name):
+#     query = f"SELECT * FROM `{PROJECT_ID}.{dataset_name}.{table_name}`"
+    
+#     try:
+#         df = client.query(query).to_dataframe()
+        
+#         # Log the number of rows retrieved
+#         logging.info(f"Query result for {dataset_name}.{table_name} has {df.shape[0]} rows.")
+        
+#         if 'start_date' in df.columns:
+#             logging.info(df['start_date'].head())
+
+#         # Apply the conversion
+#         if 'start_date' in df.columns:
+#             df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce').dt.date
+#         if 'end_date' in df.columns:
+#             df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce').dt.date
+
+#         if 'start_date' in df.columns:
+#             logging.info(df['start_date'].head())
+
+#         return df
+#     except Exception as e:
+#         logging.error(f"Error reading data from BigQuery: {e}")
+#         return pd.DataFrame()  # Return empty DataFrame on error
+
+
 def read_existing_data(client, dataset_name, table_name):
-    query = f"SELECT * FROM `{PROJECT_ID}.{dataset_name}.{table_name}`"
+    query = f"""
+    SELECT * EXCEPT(latest_record) 
+    FROM (
+      SELECT *, 
+             MAX(start_date) OVER (PARTITION BY name ORDER BY start_date) = start_date AS latest_record
+      FROM `{PROJECT_ID}.{dataset_name}.{table_name}`
+      ORDER BY name, start_date
+    ) 
+    WHERE latest_record = true
+    """
     
     try:
+        # Execute query and load results into a DataFrame
         df = client.query(query).to_dataframe()
         
         # Log the number of rows retrieved
         logging.info(f"Query result for {dataset_name}.{table_name} has {df.shape[0]} rows.")
         
+        # Preview start_date column before conversion
         if 'start_date' in df.columns:
+            logging.info("Preview of start_date column before conversion:")
             logging.info(df['start_date'].head())
-
-        # Apply the conversion
+        
+        # Convert date columns to ensure consistent format
         if 'start_date' in df.columns:
             df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce').dt.date
         if 'end_date' in df.columns:
             df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce').dt.date
-
+        
+        # Log start_date after conversion
         if 'start_date' in df.columns:
+            logging.info("Preview of start_date column after conversion:")
             logging.info(df['start_date'].head())
-
+        
         return df
+    
     except Exception as e:
+        # Log the error and return an empty DataFrame
         logging.error(f"Error reading data from BigQuery: {e}")
         return pd.DataFrame()  # Return empty DataFrame on error
+
 
 def upsert_to_bigquery(existing_df, new_df):
     # Set up logging
